@@ -5,21 +5,29 @@ case class Program(statements : Seq[Statement])
 sealed trait Statement
   case class VarAssignment(varname: String, expression: Expression) extends Statement
   case class SubroutineCall(fcall : FunctionCall) extends Statement
+  case class IfThenElse(_condition : Expression, _then: Seq[Statement], _else : Seq[Statement]) extends Statement
 
 sealed trait PrimitiveValue
   case class PInt(value: Integer) extends PrimitiveValue
-  case class PDouble(value: Double) extends PrimitiveValue
+  case class PFloat(value: Double) extends PrimitiveValue
   case class PString(value: String) extends PrimitiveValue
 
 sealed trait Expression
-  case class Expr(operator: Operator, l_operand: Expression, r_operand : Expression) extends Expression
+  case class Expr(operator: BinaryOperator, l_operand: Expression, r_operand : Expression) extends Expression
   case class Identifier(value : String) extends Expression
   case class ExprValue(value : PrimitiveValue) extends Expression
   case class FunctionCall(name : String, parameters : Seq[Expression]) extends Expression
 
-sealed trait Operator
-  case class Plus() extends Operator
-  case class Minus() extends Operator
-  case class Mult() extends Operator
-  case class Div() extends Operator
-  case class Mod() extends Operator
+sealed trait BinaryOperator
+  class BooleanOperator() extends BinaryOperator
+  class ArithmeticOperator() extends BinaryOperator
+
+  case class Plus() extends ArithmeticOperator
+  case class Minus() extends ArithmeticOperator
+  case class Mult() extends ArithmeticOperator
+  case class Div() extends ArithmeticOperator
+  case class Mod() extends ArithmeticOperator
+  case class Gt() extends BooleanOperator
+  case class Lt() extends BooleanOperator
+  case class Eq() extends BooleanOperator
+  case class Neq() extends BooleanOperator

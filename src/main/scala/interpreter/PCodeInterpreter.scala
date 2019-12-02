@@ -1,6 +1,7 @@
 package interpreter
 
 import parser.{Expression, Program, Statement}
+import typecheck.TNotSet
 
 import scala.collection.immutable.HashMap
 
@@ -12,8 +13,8 @@ object PCodeInterpreter {
     executeStatements(p.statements.toList, state)
   }
 
-  def executeStatements(statements : List[Statement], state: HashMap[String, Variable]): Unit = statements match  {
-    case Nil => ()
+  def executeStatements(statements : List[Statement], state: HashMap[String, Variable]): HashMap[String, Variable] = statements match  {
+    case Nil => state
     case stat :: rest =>
       val updatedState = executeStatement(stat, state)
       executeStatements(rest, updatedState)
@@ -22,7 +23,7 @@ object PCodeInterpreter {
   def executeStatement(stat : Statement, state : HashMap[String, Variable]) : HashMap[String, Variable] = {
     stat match {
       case parser.VarAssignment(varname, expression) =>
-        state + (varname -> Var(evaluateExpression(expression, state).toString, "unset"))
+        state + (varname -> Var(evaluateExpression(expression, state).toString, TNotSet()))
       case parser.SubroutineCall(fcall) =>
         state.get(fcall.name) match {
           case Some(v) => v match {
@@ -31,6 +32,11 @@ object PCodeInterpreter {
               state
           }
         }
+      case parser.IfThenElse(_condition, _then, _else) =>
+        if (evaluateExpression(_condition, state) == "true")
+          executeStatements(_then.toList, state)
+        else
+          executeStatements(_else.toList, state)
     }
   }
 
@@ -39,7 +45,7 @@ object PCodeInterpreter {
       case parser.ExprValue(value) => value match {
         case parser.PInt(value1) => value1.toString
         case parser.PString(value1) => value1
-        case parser.PDouble(value1) => value1.toString
+        case parser.PFloat(value1) => value1.toString
       }
       case parser.Identifier(id) => state.get(id) match {
         case Some(Var(value, _type)) => value
@@ -50,6 +56,10 @@ object PCodeInterpreter {
         case parser.Div() => (evaluateExpression(l, state).toInt / evaluateExpression(r, state).toInt).toString
         case parser.Plus() => (evaluateExpression(l, state).toInt + evaluateExpression(r, state).toInt).toString
         case parser.Minus() => (evaluateExpression(l, state).toInt - evaluateExpression(r, state).toInt).toString
+        case parser.Gt() => (evaluateExpression(l, state).toInt > evaluateExpression(r, state).toInt).toString
+        case parser.Lt() => (evaluateExpression(l, state).toInt < evaluateExpression(r, state).toInt).toString
+        case parser.Eq() => (evaluateExpression(l, state).toInt == evaluateExpression(r, state).toInt).toString
+        case parser.Neq() => (evaluateExpression(l, state).toInt != evaluateExpression(r, state).toInt).toString
       }
       case parser.FunctionCall(name, parameters) => {
         state.get(name) match {

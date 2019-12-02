@@ -1,5 +1,7 @@
 package interpreter
 
+import typecheck.{TInt, TString, TUnit}
+
 import scala.collection.immutable.HashMap
 import scala.collection.mutable
 
@@ -7,13 +9,13 @@ object SysCalls {
 
   def initializeSyscalls(state : HashMap[String,Variable]): HashMap[String, Variable] = {
     state +
-      ("print" -> SysCall(List("string"), params => {
+      ("print" -> SysCall(List(TString()), params => {
       System.out.println(params.head)
       None
-    }, "Unit")) +
-      ("intToString" -> SysCall(List("int"), params => {
+    }, TUnit())) +
+      ("intToString" -> SysCall(List(TInt()), params => {
         Some(params.head.toString)
-      }, "string"))
+      }, TString()))
   }
 
 }

@@ -1,9 +1,18 @@
 package typecheck
 
+import exceptions.TypeCheckException
 import interpreter.{SysCall, SysCalls, Var, Variable}
-import parser.{Expression, FunctionCall, Program, Statement}
+import parser._
 
 import scala.collection.immutable.HashMap
+
+sealed trait Type
+case class TString() extends Type
+case class TInt() extends Type
+case class TFloat() extends Type
+case class TBool() extends Type
+case class TUnit() extends Type
+case class TNotSet() extends Type
 
 object Typechecker {
 
@@ -12,14 +21,14 @@ object Typechecker {
     checkStatements(p.statements.toList, state)
   }
 
-  def checkStatements(statements : List[Statement], state: HashMap[String, Variable]): Unit = statements match  {
-    case Nil => ()
+  def checkStatements(statements : List[Statement], state: HashMap[String, Variable]): HashMap[String, Variable] = statements match  {
+    case Nil => state
     case stat :: rest =>
       val updatedState = checkStatement(stat, state)
       checkStatements(rest, updatedState)
   }
 
-  def checkFunctionCall(name : String, parameters : Seq[Expression],  state : HashMap[String, Variable]) : String = {
+  def checkFunctionCall(name : String, parameters : Seq[Expression],  state : HashMap[String, Variable]) : Type = {
     state.get(name) match {
       case Some(variable) => variable match {
         case SysCall(calleeParameters, body, _type) =>
@@ -38,16 +47,20 @@ object Typechecker {
       case parser.SubroutineCall(fcall) =>
         checkFunctionCall(fcall.name, fcall.parameters, state)
         state
+      case parser.IfThenElse(_condition, _then, _else) =>
+        if (!checkExpression(_condition, state).isInstanceOf[TBool])
+          throw new TypeCheckException("Expression in if was boolean. ")
+        val updatedState = checkStatements(_then.toList, state)
+        checkStatements(_else.toList, state)
     }
   }
 
-
-  def checkExpression(expr : Expression, state: HashMap[String, Variable]) : String = {
+  def checkExpression(expr : Expression, state: HashMap[String, Variable]) : Type = {
     expr match {
       case parser.ExprValue(value) => value match {
-        case parser.PInt(_) => "int"
-        case parser.PString(_) => "string"
-        case parser.PDouble(_) => "double"
+        case parser.PInt(_) => TInt()
+        case parser.PString(_) => TString()
+        case parser.PFloat(_) => TFloat()
       }
       case parser.Identifier(id) => state.get(id) match {
         case Some(Var(value, _type)) => _type
@@ -59,7 +72,11 @@ object Typechecker {
         if (leftType != rightType)
           throw new Exception(s"Type mismatch in expression: $leftType not equal to $rightType")
         else
-          leftType
+          op match {
+            case _ : ArithmeticOperator => leftType
+            case _ : BooleanOperator => //todo: Does it make sense to compare strings with < / > ?
+              TBool()
+          }
       case parser.FunctionCall(name, parameters) =>
         checkFunctionCall(name, parameters, state)
     }

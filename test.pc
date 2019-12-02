@@ -1,0 +1,12 @@
+var y<-5+(1+2)*3
+var x <- 4*4
+
+var s<-intToString(y+x)
+var test<-"hej"
+if 5 > 7 then
+  print(s)
+else
+  print(test)
+  print("S er:")
+  print(s)
+end if
