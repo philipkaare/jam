@@ -1,6 +1,7 @@
 package interpreter
 
-import parser.{Expression, Program, Statement}
+import exceptions.RuntimeTypeException
+import parser._
 import typecheck.TNotSet
 
 import scala.collection.immutable.HashMap
@@ -23,7 +24,7 @@ object PCodeInterpreter {
   def executeStatement(stat : Statement, state : HashMap[String, Variable]) : HashMap[String, Variable] = {
     stat match {
       case parser.VarAssignment(varname, expression) =>
-        state + (varname -> Var(evaluateExpression(expression, state).toString, TNotSet()))
+        state + (varname -> evaluateExpression(expression, state))
       case parser.SubroutineCall(fcall) =>
         state.get(fcall.name) match {
           case Some(v) => v match {
@@ -33,34 +34,44 @@ object PCodeInterpreter {
           }
         }
       case parser.IfThenElse(_condition, _then, _else) =>
-        if (evaluateExpression(_condition, state) == "true")
+        if (evaluateExpression(_condition, state) == BoolVar(true))
           executeStatements(_then.toList, state)
         else
           executeStatements(_else.toList, state)
     }
   }
 
-  def evaluateExpression(expr : Expression, state: HashMap[String, Variable]) : String = {
+
+
+  def evaluateExpression(expr : Expression, state: HashMap[String, Variable]) : Variable = {
+
     expr match {
       case parser.ExprValue(value) => value match {
-        case parser.PInt(value1) => value1.toString
-        case parser.PString(value1) => value1
-        case parser.PFloat(value1) => value1.toString
+        case parser.PInt(value1) => IntVar(value1)
+        case parser.PString(value1) => StringVar(value1)
+        case parser.PFloat(value1) => FloatVar(value1)
+        case parser.PBool(value1) => BoolVar(value1)
       }
       case parser.Identifier(id) => state.get(id) match {
-        case Some(Var(value, _type)) => value
+        case Some(variable) => variable
         case None => throw new Exception("Variable " + id + " not defined when referenced. ")
       }
-      case parser.Expr(op, l, r) => op match {
-        case parser.Mult() => (evaluateExpression(l, state).toInt * evaluateExpression(r, state).toInt).toString
-        case parser.Div() => (evaluateExpression(l, state).toInt / evaluateExpression(r, state).toInt).toString
-        case parser.Plus() => (evaluateExpression(l, state).toInt + evaluateExpression(r, state).toInt).toString
-        case parser.Minus() => (evaluateExpression(l, state).toInt - evaluateExpression(r, state).toInt).toString
-        case parser.Gt() => (evaluateExpression(l, state).toInt > evaluateExpression(r, state).toInt).toString
-        case parser.Lt() => (evaluateExpression(l, state).toInt < evaluateExpression(r, state).toInt).toString
-        case parser.Eq() => (evaluateExpression(l, state).toInt == evaluateExpression(r, state).toInt).toString
-        case parser.Neq() => (evaluateExpression(l, state).toInt != evaluateExpression(r, state).toInt).toString
-      }
+      case parser.Expr(op, l, r) =>
+        val leftvar = evaluateExpression(l, state)
+        val rightvar = evaluateExpression(r, state)
+
+        op match {
+          case boolOp: BooleanOperator =>
+            (leftvar, rightvar) match {
+              case (lcomp: Comparable[Ordered[Int]], rcomp: Comparable[Ordered[Int]]) =>
+                BoolVar(lcomp.compare(boolOp, rcomp))
+              case _ => throw new RuntimeTypeException("Expected a comparable expression with boolean operator, but was not comparable. The typechecking phase should have caught this...")
+            }
+          case arithOp : ArithmeticOperator =>
+            IntVar(1)
+        }
+
+
       case parser.FunctionCall(name, parameters) => {
         state.get(name) match {
           case Some(v) => v match {

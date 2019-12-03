@@ -14,7 +14,7 @@ object SysCalls {
       None
     }, TUnit())) +
       ("intToString" -> SysCall(List(TInt()), params => {
-        Some(params.head.toString)
+        Some(StringVar(params.head.toString))
       }, TString()))
   }
 

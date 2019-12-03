@@ -1,7 +1,7 @@
 package typecheck
 
 import exceptions.TypeCheckException
-import interpreter.{SysCall, SysCalls, Var, Variable}
+import interpreter.{SysCall, SysCalls, Variable}
 import parser._
 
 import scala.collection.immutable.HashMap
@@ -13,37 +13,47 @@ case class TFloat() extends Type
 case class TBool() extends Type
 case class TUnit() extends Type
 case class TNotSet() extends Type
+case class TFunctionCall(params : List[Type], returnType : Type) extends Type
 
 object Typechecker {
 
   def check(p :Program): Unit = {
-    val state = SysCalls.initializeSyscalls(HashMap())
+
+    val state = (SysCalls initializeSyscalls HashMap()) map{
+        case (name, variable) =>
+            variable match {
+              case SysCall(parameterTypes, body, _type) => (name, TFunctionCall(parameterTypes,_type))
+              case _ => throw new TypeCheckException("A variable of type other than syscall in syscall collection. Bad, bad programmer!")
+            }
+      }
     checkStatements(p.statements.toList, state)
   }
 
-  def checkStatements(statements : List[Statement], state: HashMap[String, Variable]): HashMap[String, Variable] = statements match  {
+  def checkStatements(statements : List[Statement], state: HashMap[String, Type]): HashMap[String,  Type] = statements match  {
     case Nil => state
     case stat :: rest =>
       val updatedState = checkStatement(stat, state)
       checkStatements(rest, updatedState)
   }
 
-  def checkFunctionCall(name : String, parameters : Seq[Expression],  state : HashMap[String, Variable]) : Type = {
+  def checkFunctionCall(name : String, parameters : Seq[Expression],  state : HashMap[String,  Type]) :  Type = {
     state.get(name) match {
-      case Some(variable) => variable match {
-        case SysCall(calleeParameters, body, _type) =>
+      case Some(_type) => _type match {
+        case  TFunctionCall(calleeParameters,returnType) =>
+
           val callParamTypes = parameters.map(p => checkExpression(p, state))
+
           if (callParamTypes != calleeParameters)
-            throw new Exception(s"Call to: $name had mismatch of parameters. Was: ${callParamTypes.toString()}, expected $calleeParameters. ")
-          _type
+            throw new TypeCheckException("Parameter types did not match. ")
+          returnType
       }
     }
   }
 
-  def checkStatement(stat : Statement, state : HashMap[String, Variable]) : HashMap[String, Variable] = {
+  def checkStatement(stat : Statement, state : HashMap[String,  Type]) : HashMap[String,  Type] = {
     stat match {
       case parser.VarAssignment(varname, expression) =>
-        state + (varname -> Var("unset", checkExpression(expression, state)))
+        state + (varname -> checkExpression(expression, state))
       case parser.SubroutineCall(fcall) =>
         checkFunctionCall(fcall.name, fcall.parameters, state)
         state
@@ -55,15 +65,15 @@ object Typechecker {
     }
   }
 
-  def checkExpression(expr : Expression, state: HashMap[String, Variable]) : Type = {
+  def checkExpression(expr : Expression, state: HashMap[String,  Type]) :  Type = {
     expr match {
       case parser.ExprValue(value) => value match {
         case parser.PInt(_) => TInt()
-        case parser.PString(_) => TString()
-        case parser.PFloat(_) => TFloat()
+        case parser.PString(_) =>  TString()
+        case parser.PFloat(_) =>  TFloat()
       }
       case parser.Identifier(id) => state.get(id) match {
-        case Some(Var(value, _type)) => _type
+        case Some( _type) => _type
         case None => throw new Exception("Variable " + id + " not defined when referenced. ")
       }
       case parser.Expr(op, l, r) =>
