@@ -1,5 +1,6 @@
 var y<-5+(1+2)*3
-var x <- 4*4
+var x <- 4*4/2
+var z <- 4.3+7.3
 
 var s<-intToString(y+x)
 var test<-"hej"
@@ -9,4 +10,6 @@ else
   print(test)
   print("S er:")
   print(s)
+  print("Z er:")
+  print(floatToString(z))
 end if

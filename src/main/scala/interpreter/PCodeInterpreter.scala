@@ -5,6 +5,7 @@ import parser._
 import typecheck.TNotSet
 
 import scala.collection.immutable.HashMap
+import scala.math.Numeric.DoubleIsFractional
 
 
 object PCodeInterpreter {
@@ -29,7 +30,7 @@ object PCodeInterpreter {
         state.get(fcall.name) match {
           case Some(v) => v match {
             case SysCall(parameters, body, _type) =>
-              body.apply(fcall.parameters.map(p => evaluateExpression(p, state).toString))
+              body.apply(fcall.parameters.map(p => evaluateExpression(p, state)))
               state
           }
         }
@@ -41,6 +42,25 @@ object PCodeInterpreter {
     }
   }
 
+  def calculate(arithOp : ArithmeticOperator, x: IntVar, y : IntVar) : IntVar = {
+
+    IntVar(arithOp match {
+      case Mult() => x.value * y.value
+      case Plus() => x.value + y.value
+      case Minus() => x.value - y.value
+      case Div() => x.value / y.value
+    })
+  }
+
+  def calculate(arithOp : ArithmeticOperator, x: FloatVar, y : FloatVar) : FloatVar = {
+
+    FloatVar(arithOp match {
+      case Mult() => x.value * y.value
+      case Plus() => x.value + y.value
+      case Minus() => x.value - y.value
+      case Div() => x.value / y.value
+    })
+  }
 
 
   def evaluateExpression(expr : Expression, state: HashMap[String, Variable]) : Variable = {
@@ -68,7 +88,11 @@ object PCodeInterpreter {
               case _ => throw new RuntimeTypeException("Expected a comparable expression with boolean operator, but was not comparable. The typechecking phase should have caught this...")
             }
           case arithOp : ArithmeticOperator =>
-            IntVar(1)
+            (leftvar, rightvar) match {
+              case (lint: IntVar, rint: IntVar) => calculate(arithOp, lint, rint)
+              case (lfloat : FloatVar, rfloat : FloatVar) => calculate(arithOp, lfloat, rfloat)
+              case _ => throw new RuntimeTypeException("Expected a numeric type. The typechecking phase should have caught this...")
+            }
         }
 
 
@@ -76,7 +100,7 @@ object PCodeInterpreter {
         state.get(name) match {
           case Some(v) => v match {
             case SysCall(parameterTypes, body, _type) =>
-              body.apply(parameters.map(p => evaluateExpression(p, state).toString)).get
+              body.apply(parameters.map(p => evaluateExpression(p, state))).get
           }
         }
       }

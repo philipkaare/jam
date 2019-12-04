@@ -1,7 +1,7 @@
 package interpreter
 
 import interpreter.PCodeInterpreter.evaluateExpression
-import parser.{ArithmeticOperator, BooleanOperator, Statement}
+import parser._
 import typecheck.Type
 
 sealed trait Variable
@@ -17,6 +17,7 @@ sealed trait Variable
         case parser.Neq() => !value.equals(otherval)
       }
     }
+
   }
 
 
@@ -26,5 +27,5 @@ sealed trait Variable
   case class FloatVar(override val value: Double) extends Comparable(value)
   case class BoolVar(value : Boolean) extends Variable
   case class Function(parameterTypes : List[Type], body : Statement, _type : Type) extends Variable
-  case class SysCall(parameterTypes : List[Type], body : Function1 [Seq[String], Option[Variable]], _type : Type) extends Variable
+  case class SysCall(parameterTypes : List[Type], body : Function1 [Seq[Variable], Option[Variable]], _type : Type) extends Variable
 
