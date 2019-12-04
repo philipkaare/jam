@@ -2,14 +2,20 @@ var y<-5+(1+2)*3
 var x <- 4*4/2
 var z <- 4.3+7.3
 
-var s<-intToString(y+x)
+var s<-(y+x)
 var test<-"hej"
 if 5 > 7 then
-  print(s)
+  print(intToString(s))
 else
   print(test)
   print("S er:")
-  print(s)
+  print(intToString(s))
   print("Z er:")
   print(floatToString(z))
+end if
+
+if s = 22 then
+  print("Test passed!!")
+else
+  print("Test failed :(")
 end if

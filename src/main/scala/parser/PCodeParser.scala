@@ -9,7 +9,7 @@ import scala.reflect.macros.whitebox
 class PCodeParser (val input: ParserInput) extends Parser {
 
   def StringLiteralToken : Rule1[Expression] = rule {
-    (ch('"') ~ capture(oneOrMore(ch(' ')|ch(':')|CharPredicate.AlphaNum.named("character"))) ~ ch('"') ~> ((s : String) => ExprValue(PString(s)))) ~ Whitespace}
+    (ch('"') ~ capture(oneOrMore(ch(' ')|ch(':')|ch('(')|ch(')')|ch('!')|CharPredicate.AlphaNum.named("character"))) ~ ch('"') ~> ((s : String) => ExprValue(PString(s)))) ~ Whitespace}
   def Digits : Rule0 = rule { oneOrMore(CharPredicate.Digit) }
   def FloatingDigits : Rule0 = rule { oneOrMore(CharPredicate.Digit) ~ ch('.') ~ oneOrMore(CharPredicate.Digit) }
   def NumberToken : Rule1[Expression] = rule { capture(Digits) ~> ((n : String) => ExprValue(PInt (n.toInt))) ~ Whitespace }
