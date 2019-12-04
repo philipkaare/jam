@@ -11,7 +11,9 @@ class PCodeParser (val input: ParserInput) extends Parser {
   def StringLiteralToken : Rule1[Expression] = rule {
     (ch('"') ~ capture(oneOrMore(ch(' ')|ch(':')|CharPredicate.AlphaNum.named("character"))) ~ ch('"') ~> ((s : String) => ExprValue(PString(s)))) ~ Whitespace}
   def Digits : Rule0 = rule { oneOrMore(CharPredicate.Digit) }
+  def FloatingDigits : Rule0 = rule { oneOrMore(CharPredicate.Digit) ~ ch('.') ~ oneOrMore(CharPredicate.Digit) }
   def NumberToken : Rule1[Expression] = rule { capture(Digits) ~> ((n : String) => ExprValue(PInt (n.toInt))) ~ Whitespace }
+  def FloatToken : Rule1[Expression] = rule {capture(FloatingDigits)~> ((n : String) => ExprValue(PFloat (n.toDouble))) ~ Whitespace }
   def PlusToken : Rule1[Plus] = rule {ch('+')~ Whitespace ~ push(Plus())}
   def MinusToken : Rule1[Minus] = rule {ch('-')~ Whitespace ~ push(Minus ())}
   def MultToken : Rule1[Mult] = rule {ch('*')~ Whitespace ~push(Mult())}
@@ -68,6 +70,6 @@ class PCodeParser (val input: ParserInput) extends Parser {
 
   def Factor: Rule1[Expression] = rule {
     StringLiteralToken |
-    NumberToken | ParseFunctionCall |ch('(') ~ ParseExpression ~ ch(')') |
+      FloatToken | NumberToken | ParseFunctionCall |ch('(') ~ ParseExpression ~ ch(')') |
       IdentifierToken ~> Identifier }
 }

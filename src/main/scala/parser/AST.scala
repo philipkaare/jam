@@ -11,6 +11,7 @@ sealed trait PrimitiveValue
   case class PInt(value: Integer) extends PrimitiveValue
   case class PFloat(value: Double) extends PrimitiveValue
   case class PString(value: String) extends PrimitiveValue
+  case class PBool(value : Boolean) extends PrimitiveValue
 
 sealed trait Expression
   case class Expr(operator: BinaryOperator, l_operand: Expression, r_operand : Expression) extends Expression
