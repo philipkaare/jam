@@ -1,11 +1,12 @@
 var y <- 5+(1+2)*3
 var x <- 4*4/2
 var z <- 4.3+7.3
+z<- 10.5
+print(intToString(y))
 print("What's your name?")
 var name<-read()
 print("Hi: ")
 print(name)
-print(4)
 
 var s<-(y+x)
 if 5 > 7 then

@@ -1,5 +1,10 @@
 package exceptions
 
-class TypeCheckException (message : String) extends Exception(message) {
-
+class TypeCheckException (message : String, loc : String) extends Exception(message) {
+  override def getMessage: String = {
+    if (loc != "")
+      s"$loc: $message"
+    else
+      message
+  }
 }

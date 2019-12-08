@@ -1,5 +1,5 @@
 import exceptions.TypeCheckException
-import interpreter.PCodeInterpreter
+import interpreter.{Base, PCodeInterpreter}
 import org.parboiled2.ParseError
 import parser.PCodeParser
 import typecheck.Typechecker
@@ -13,8 +13,10 @@ object HelloWorld {
     var parser = null : PCodeParser
     try
     {
+
       println(s"Opening $filename")
       val fileContents = Source.fromFile(filename).getLines.mkString("\n")
+      Typechecker.getLineNo = Base.getLineNo(fileContents)
       println("Parsing phase ...")
       parser = new PCodeParser(fileContents)
       val res = parser.Input.run()

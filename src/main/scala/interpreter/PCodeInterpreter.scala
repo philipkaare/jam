@@ -31,9 +31,11 @@ object PCodeInterpreter {
   def executeStatement(stat : Statement) : State[HashMap[String, Variable], Unit] = {
 
         stat match {
-          case parser.VarAssignment(varname, expression) =>
+          case parser.VarAssignmentAndDeclaration(varname, expression, loc) =>
             evaluateExpression(expression).flatMap(exprType => Base.updateState(varname, exprType))
-          case parser.SubroutineCall(fcall) =>
+          case VarAssignment(varname, expression, loc) =>
+            evaluateExpression(expression).flatMap(exprType => Base.updateState(varname, exprType))
+          case parser.SubroutineCall(fcall, loc) =>
             for {
               v <- Base.getVariable(fcall.name)
               params <- fcall.parameters.toList.traverse(evaluateExpression)
@@ -47,7 +49,7 @@ object PCodeInterpreter {
               }
               ()
             }
-          case parser.IfThenElse(_condition, _then, _else) =>
+          case parser.IfThenElse(_condition, _then, _else, loc) =>
             for {
               cond <- evaluateExpression(_condition)
 
@@ -120,7 +122,7 @@ object PCodeInterpreter {
               }
           }
         }
-      case parser.FunctionCall(name, parameters) => {
+      case parser.FunctionCall(name, parameters, loc) => {
         for {
           v <- Base.getVariable(name)
           params <- parameters.toList.traverse(evaluateExpression)

@@ -33,26 +33,32 @@ class PCodeParser (val input: ParserInput) extends Parser {
   def KeywordVar: Rule0= rule { atomic("var") ~ RequiredWhiteSpace }
   def KeywordAssignment : Rule0 = rule { atomic("<-") ~ Whitespace }
 
+  def ParseAssignmentAndDeclaration : Rule1[Statement] = rule {
+    (KeywordVar ~ IdentifierToken ~ KeywordAssignment ~ ParseExpression) ~> ((i : String, e : Expression) => VarAssignmentAndDeclaration(i,e, cursor))
+  }
+
   def ParseAssignment : Rule1[Statement] = rule {
-    (KeywordVar ~ IdentifierToken ~ KeywordAssignment ~ ParseExpression) ~> ((i : String, e : Expression) => VarAssignment(i,e))
+    (IdentifierToken ~ KeywordAssignment ~ ParseExpression) ~> ((i : String, e : Expression) => VarAssignment(i,e, cursor))
   }
 
   def ParseIfThenElse : Rule1[IfThenElse] = rule {
     (atomic("if") ~ RequiredWhiteSpace ~ ParseExpression ~ atomic("then") ~ Whitespace  ~ NewLine ~ oneOrMore(Whitespace ~ ParseStatement) ~ atomic("else") ~ NewLine ~ oneOrMore(Whitespace ~ ParseStatement) ~ Whitespace ~ atomic("end if")) ~>
-      ((cond : Expression, _then : Seq[Statement], _else : Seq[Statement]) => IfThenElse(cond,_then,_else))
+      ((cond : Expression, _then : Seq[Statement], _else : Seq[Statement]) => IfThenElse(cond,_then,_else, cursor))
   }
 
-  def ParseStatement : Rule1[Statement] = rule { (ParseAssignment | ParseSubroutineCall | ParseIfThenElse) ~ NewLine}
+  def ParseStatement : Rule1[Statement] = rule { (ParseAssignment | ParseAssignmentAndDeclaration | ParseSubroutineCall | ParseIfThenElse) ~ NewLine}
 
   def ParseProgram : Rule1[Program] = rule { oneOrMore(ParseStatement) ~> (ss => Program(ss)) }
 
   def Input = rule { ParseProgram ~ EOI }
 
-  def ParseSubroutineCall : Rule1[Statement] = rule { ParseFunctionCall ~> SubroutineCall}
+  def ParseSubroutineCall : Rule1[Statement] = rule { ParseFunctionCall ~> ((f : FunctionCall) => SubroutineCall(f, cursor))}
+
+  //def ParseFunctionDeclaration : Rule1[Statement] = rule {}
 
   def ParseFunctionCall : Rule1[FunctionCall] = rule {
-    IdentifierToken ~ ch('(') ~ zeroOrMore(ParseExpression).separatedBy(ch(',')) ~ ch(')')~>
-      ((name, params) => FunctionCall(name, params) )
+    IdentifierToken ~ ch('(') ~ zeroOrMore(ParseExpression).separatedBy(ch(',')~Whitespace) ~ ch(')')~>
+      ((name, params) => FunctionCall(name, params, cursor) )
   }
 
   def ParseExpression : Rule1[Expression]  = rule {

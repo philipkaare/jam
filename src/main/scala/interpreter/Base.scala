@@ -13,4 +13,11 @@ object Base {
     State(s => (s, s.get(key)))
   }
 
+  def getLineNo(input : String) = (pos : Int ) => {
+    val (untilPos,_) = input.splitAt(pos)
+    val lineno = untilPos.count(c => c == '\n') + 1
+    val linepos = pos-untilPos.lastIndexOf('\n') - 1
+    s"At line: $lineno, position: $linepos"
+  }
+
 }
