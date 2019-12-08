@@ -1,8 +1,12 @@
 package typecheck
 
+import cats.data.State
 import exceptions.TypeCheckException
-import interpreter.{SysCall, SysCalls, Variable}
+import interpreter.{Base, SysCall, SysCalls, Variable}
 import parser._
+import cats.implicits._
+import cats.syntax.traverse
+import typecheck.Typechecker.{checkExpression, checkStatements}
 
 import scala.collection.immutable.HashMap
 
@@ -18,77 +22,124 @@ case class TFunctionCall(params : List[Type], returnType : Type) extends Type
 object Typechecker {
 
   def check(p :Program): Unit = {
-
-    val state = (SysCalls initializeSyscalls HashMap()) map{
+    val init = SysCalls.initializeSyscalls().run(HashMap())
+    val state = init.value._1.map{
         case (name, variable) =>
             variable match {
               case SysCall(parameterTypes, body, _type) => (name, TFunctionCall(parameterTypes,_type))
               case _ => throw new TypeCheckException("A variable of type other than syscall in syscall collection. Bad, bad programmer!")
             }
       }
-    checkStatements(p.statements.toList, state)
+    checkStatements(p.statements.toList).run(state).value
   }
 
-  def checkStatements(statements : List[Statement], state: HashMap[String, Type]): HashMap[String,  Type] = statements match  {
-    case Nil => state
+  def checkStatements(statements : List[Statement]): State[HashMap[String,  Type],Unit] =
+    statements match  {
+    case Nil => State(s => (s, ()))
     case stat :: rest =>
-      val updatedState = checkStatement(stat, state)
-      checkStatements(rest, updatedState)
+      for {
+        _ <- checkStatement(stat)
+        _ <- checkStatements(rest)
+      } yield ()
   }
 
-  def checkFunctionCall(name : String, parameters : Seq[Expression],  state : HashMap[String,  Type]) :  Type = {
-    state.get(name) match {
-      case Some(_type) => _type match {
-        case  TFunctionCall(calleeParameters,returnType) =>
-
-          val callParamTypes = parameters.map(p => checkExpression(p, state))
-
-          if (callParamTypes != calleeParameters)
-            throw new TypeCheckException("Parameter types did not match. ")
-          returnType
+  def checkFunctionCall(name : String, parameters : Seq[Expression]) : State[HashMap[String,  Type],Type]  = {
+    def getFunction() : State[HashMap[String,  Type], Tuple3[Seq[Expression], Type, List[Type]]] = {
+      for {
+        functionReturnType <- Base.getVariable(name)
       }
+        yield {
+          functionReturnType match {
+            case Some(_type) => _type match {
+              case TFunctionCall(calleeParameters, returnType) =>
+                (parameters, returnType, calleeParameters)
+            }
+          }
+        }
     }
+
+    for {
+      function <- getFunction()
+      parameters = function._1
+      calleeParameters = function._3
+      returnType = function._2
+      callParamTypes <- parameters.toList.traverse(checkExpression)
+    }
+    yield {
+      if (callParamTypes != calleeParameters)
+        throw new TypeCheckException("Parameter types did not match. ")
+
+      returnType
+    }
+
   }
 
-  def checkStatement(stat : Statement, state : HashMap[String,  Type]) : HashMap[String,  Type] = {
+  def checkStatement(stat : Statement) : State[HashMap[String,  Type],Unit]  = {
     stat match {
       case parser.VarAssignment(varname, expression) =>
-        state + (varname -> checkExpression(expression, state))
+        for {
+          t <- checkExpression(expression)
+          _ <- Base.updateState(varname, t)
+        }
+        yield ()
+
       case parser.SubroutineCall(fcall) =>
-        checkFunctionCall(fcall.name, fcall.parameters, state)
-        state
+        checkFunctionCall(fcall.name, fcall.parameters).flatMap(x => State(s => (s, ())))
       case parser.IfThenElse(_condition, _then, _else) =>
-        if (!checkExpression(_condition, state).isInstanceOf[TBool])
-          throw new TypeCheckException("Expression in if was boolean. ")
-        val updatedState = checkStatements(_then.toList, state)
-        checkStatements(_else.toList, state)
+        (for {
+          condType <- checkExpression(_condition)
+        }
+        yield {
+          if (!condType.isInstanceOf[TBool])
+            throw new TypeCheckException("Expression in if was not boolean. ")
+          ()
+        }).flatMap(x => {
+          State(s =>{
+            checkStatements(_then.toList).run(s).value
+            checkStatements(_else.toList).run(s).value
+            (s, ())
+          })
+        })
+
     }
   }
 
-  def checkExpression(expr : Expression, state: HashMap[String,  Type]) :  Type = {
+  def checkExpression(expr : Expression) : State[HashMap[String,  Type],Type] = {
     expr match {
       case parser.ExprValue(value) => value match {
-        case parser.PInt(_) => TInt()
-        case parser.PString(_) =>  TString()
-        case parser.PFloat(_) =>  TFloat()
+        case PInt(_) => State(s => (s,TInt()))
+        case PString(_) =>  State(s => (s,TString()))
+        case PFloat(_) =>  State(s => (s,TFloat()))
+        case PBool(_)=> State(s => (s, TBool()))
       }
-      case parser.Identifier(id) => state.get(id) match {
-        case Some( _type) => _type
-        case None => throw new Exception("Variable " + id + " not defined when referenced. ")
+      case parser.Identifier(id) =>
+        for {
+          v <- Base.getVariable(id)
+        } yield{
+          v match {
+            case Some( _type) => _type
+            case None => throw new Exception("Variable " + id + " not defined when referenced. ")
+        }
       }
       case parser.Expr(op, l, r) =>
-        val leftType = checkExpression(l, state)
-        val rightType = checkExpression(r, state)
-        if (leftType != rightType)
-          throw new Exception(s"Type mismatch in expression: $leftType not equal to $rightType")
-        else
-          op match {
-            case _ : ArithmeticOperator => leftType
-            case _ : BooleanOperator => //todo: Does it make sense to compare strings with < / > ?
-              TBool()
-          }
+        for {
+          leftType <- checkExpression(l)
+          rightType <- checkExpression(r)
+
+        }
+        yield {
+          if (leftType != rightType)
+            throw new Exception(s"Type mismatch in expression: $leftType not equal to $rightType")
+          else
+            op match {
+              case _ : ArithmeticOperator => leftType
+              case _ : BooleanOperator => //todo: Does it make sense to compare strings with < / > ?
+                TBool()
+            }
+        }
+
       case parser.FunctionCall(name, parameters) =>
-        checkFunctionCall(name, parameters, state)
+        checkFunctionCall(name, parameters)
     }
   }
 }

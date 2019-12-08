@@ -1,3 +1,4 @@
+import exceptions.TypeCheckException
 import interpreter.PCodeInterpreter
 import org.parboiled2.ParseError
 import parser.PCodeParser
@@ -28,6 +29,7 @@ object HelloWorld {
     catch
     {
       case error : ParseError  => println(parser.formatError(error))
+      case error : TypeCheckException => println(error.getMessage)
     }
 
 
