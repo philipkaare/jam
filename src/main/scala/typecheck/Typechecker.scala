@@ -12,32 +12,7 @@ import typecheck.Typechecker.{checkExpression, checkStatements}
 
 import scala.collection.immutable.HashMap
 
-sealed trait Type
-case class TString() extends Type
-case class TInt() extends Type
-case class TFloat() extends Type
-case class TBool() extends Type
-case class TUnit() extends Type
-case class TNotSet() extends Type
-case class TFunctionCall(params : List[Type], returnType : Type) extends Type
-
 object Typechecker {
-
-  def toString(t : Type) : String = {
-    t match {
-      case TString() => "String"
-      case TInt() => "Int"
-      case TFloat() => "Float"
-      case TBool() => "Boolean"
-      case TUnit() => "Unit"
-      case TNotSet() => "Unset"
-      case TFunctionCall(params, returnType) =>
-          "(" + toString(params) + ") => " + toString(returnType)
-    }
-  }
-
-  def toString(tl : Seq[Type]) : String = "("+ tl.map(t => toString(t)).reduce((l,r)=>l+","+r) + ")"
-
 
   var getLineNo : Int => String = s => ""
 
@@ -87,7 +62,7 @@ object Typechecker {
     }
     yield {
       if (callParamTypes != calleeParamTypes)
-          throw new TypeCheckException(s"In call to function: '$name': parameters were of types: ${toString(callParamTypes)}, but function expected ${toString(calleeParamTypes)}", getLineNo(loc))
+          throw new TypeCheckException(s"In call to function: '$name': parameters were of types: ${Types.toString(callParamTypes)}, but function expected ${Types.toString(calleeParamTypes)}", getLineNo(loc))
 
       returnType
     }
@@ -110,7 +85,7 @@ object Typechecker {
           varTypeOpt match{
             case Some(varType) =>
               if (exprType != varType)
-                throw new TypeCheckException(s"Variable assigned to wrong type. Variable $varname is of type: ${toString(varType)} but was assigned a value of type ${toString(exprType)}", getLineNo(loc))
+                throw new TypeCheckException(s"Variable assigned to wrong type. Variable $varname is of type: ${Types.toString(varType)} but was assigned a value of type ${Types.toString(exprType)}", getLineNo(loc))
             case None =>
               throw new TypeCheckException(s"Tried to assign a value to an undeclared variable '$varname'. Maybe you forgot to declare the variable using the 'var' keyword?", getLineNo(loc))
           }

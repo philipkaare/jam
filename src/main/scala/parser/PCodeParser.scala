@@ -2,6 +2,7 @@ package parser
 
 import org.parboiled2._
 import shapeless.HNil
+import typecheck._
 
 import scala.language.postfixOps
 
@@ -24,7 +25,14 @@ class PCodeParser (val input: ParserInput) extends Parser {
   def ModToken : Rule1[Mod] = rule { atomic("mod") ~ Whitespace ~ push(Mod())}
   def AdditiveToken : Rule1[BinaryOperator] = rule { PlusToken | MinusToken | GtToken | LtToken | EqToken | NeqToken}
   def MultiplicativeToken : Rule1[BinaryOperator] = rule { MultToken | DivToken |  ModToken}
-
+  def ParseType : Rule1[Type] = rule {
+    capture("Int"|"Float"|"String"|"Bool") ~> ((t : String) =>
+    t match {
+      case "Int" => TInt()
+      case "Float" => TFloat()
+      case "String" => TString()
+      case "Bool" => TBool()
+    })}
   def Whitespace : Rule0 = rule { zeroOrMore(' ') }
   def RequiredWhiteSpace : Rule0 = rule {oneOrMore(' ')}
   def NewLine : Rule0 = rule { oneOrMore('\n') | &(EOI) }
@@ -54,11 +62,20 @@ class PCodeParser (val input: ParserInput) extends Parser {
 
   def ParseSubroutineCall : Rule1[Statement] = rule { ParseFunctionCall ~> ((f : FunctionCall) => SubroutineCall(f, cursor))}
 
-  //def ParseFunctionDeclaration : Rule1[Statement] = rule {}
+  def ParseTypeBinding : Rule1[TypeBinding] = rule{ (IdentifierToken~Whitespace~':'~Whitespace~ParseType) ~>
+    ((name : String, _type : Type) => TypeBinding(name, _type)) }
+
+  def ParametersDeclaration : Rule1[Seq[TypeBinding]] = rule { zeroOrMore(ParseTypeBinding).separatedBy(ch(',')~Whitespace)  }
+
+  def ParseFunctionHeading : Rule2[String,Seq[TypeBinding]] = rule { "func" ~ RequiredWhiteSpace ~ IdentifierToken ~
+    '(' ~ ParametersDeclaration ~')'~NewLine }
+
+  def ParseFunctionDeclaration : Rule1[Statement] = rule {ParseFunctionHeading ~ (oneOrMore(ParseStatement) ~ NewLine ~ "end func") ~>
+    ((fname, params, stats) => FunctionDeclaration(fname, params, stats)) }
 
   def ParseFunctionCall : Rule1[FunctionCall] = rule {
-    IdentifierToken ~ ch('(') ~ zeroOrMore(ParseExpression).separatedBy(ch(',')~Whitespace) ~ ch(')')~>
-      ((name, params) => FunctionCall(name, params, cursor) )
+    (IdentifierToken ~ ch('(') ~ zeroOrMore(ParseExpression).separatedBy(ch(',')~Whitespace) ~ ch(')') ) ~>
+      ((name, params) => FunctionCall(name, params, cursor))
   }
 
   def ParseExpression : Rule1[Expression]  = rule {

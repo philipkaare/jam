@@ -1,5 +1,7 @@
 package parser
 
+import typecheck.Type
+
 case class Program(statements : Seq[Statement])
 
 sealed trait Statement
@@ -7,7 +9,8 @@ sealed trait Statement
   case class VarAssignment(varname: String, expression: Expression, loc : Int) extends Statement
   case class SubroutineCall(fcall : FunctionCall, loc : Int) extends Statement
   case class IfThenElse(_condition : Expression, _then: Seq[Statement], _else : Seq[Statement], loc : Int) extends Statement
-  case class FunctionDeclaration(name : String, parameters : Seq[Expression], body: Seq[Statement]) extends Statement
+  case class FunctionDeclaration(name : String, parameters : Seq[TypeBinding], body: Seq[Statement]) extends Statement
+  case class TypeBinding(varname: String, _type: Type) extends Statement
 
 sealed trait PrimitiveValue
   case class PInt(value: Integer) extends PrimitiveValue
