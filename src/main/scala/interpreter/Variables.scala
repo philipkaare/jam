@@ -1,6 +1,6 @@
 package interpreter
 
-import interpreter.PCodeInterpreter.evaluateExpression
+import interpreter.JamInterpreter.evaluateExpression
 import parser._
 import typecheck.Type
 
@@ -20,12 +20,10 @@ sealed trait Variable
 
   }
 
-
-
   case class IntVar(override val value : Int) extends Comparable(value)
   case class StringVar(value : String) extends Variable
   case class FloatVar(override val value: Double) extends Comparable(value)
   case class BoolVar(value : Boolean) extends Variable
-  case class Function(parameterTypes : List[Type], body : Statement, _type : Type) extends Variable
-  case class SysCall(parameterTypes : List[Type], body : Function1 [Seq[Variable], Option[Variable]], _type : Type) extends Variable
+  case class Function(parameters : Seq[TypeBinding], body : Seq[Statement], _type : Type) extends Variable
+  case class SysCall(parameterTypes : Seq[Type], body : Function1 [Seq[Variable], Option[Variable]], _type : Type) extends Variable
 
