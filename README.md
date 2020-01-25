@@ -1,5 +1,5 @@
 # Jam
--- Let's Jam!
+## Let's Jam!
 
 An interpreter for jam - a beginner's programming language
 
