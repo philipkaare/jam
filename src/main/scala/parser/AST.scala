@@ -12,6 +12,7 @@ sealed trait Statement
   case class FunctionDeclaration(name : String, parameters : Seq[TypeBinding], body: Seq[Statement], returnType:Type, loc : Int) extends Statement
   case class TypeBinding(varname: String, _type: Type) extends Statement
   case class Return(varname : String, loc : Int) extends Statement
+  case class WhileLoop(_condition : Expression, body : Seq[Statement], loc : Int) extends Statement
 
 sealed trait PrimitiveValue
   case class PInt(value: Integer) extends PrimitiveValue

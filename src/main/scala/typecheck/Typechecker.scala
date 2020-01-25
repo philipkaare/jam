@@ -38,36 +38,27 @@ object Typechecker {
       }).run(state).value._2
 
 
-  def checkFunctionCall(name : String, parameters : Seq[Expression], loc : Int) : State[HashMap[String,  Type],Type]  = {
-    def getFunction() : State[HashMap[String,  Type], Tuple3[Seq[Expression], Type, Seq[Type]]] = {
-      for {
-        functionType <- Base.getVariable(name)
-      }
-        yield {
-          functionType match {
-            case Some(_type) => _type match {
-              case TFunctionDecl(calleeParameters, returnType) =>
-                (parameters, returnType, calleeParameters)
-            }
-            case None => throw new TypeCheckException("Call to undeclared function " + name, getLineNo(loc))
+  def checkFunctionCall(name : String, parameters : Seq[Expression], state : HashMap[String,  Type], loc : Int) :Type  = {
+    def getFunction() : Tuple3[Seq[Expression], Type, Seq[Type]] = {
+        val functionType = state.get(name)
+        functionType match {
+          case Some(_type) => _type match {
+            case TFunctionDecl(calleeParameters, returnType) =>
+              (parameters, returnType, calleeParameters)
           }
+          case None => throw new TypeCheckException("Call to undeclared function " + name, getLineNo(loc))
         }
-    }
+      }
 
-    for {
-      function <- getFunction()
-      parameters = function._1
-      calleeParamTypes = function._3
-      returnType = function._2
-      callParamTypes <- parameters.toList.traverse(checkExpression)
-    }
-    yield {
+      val function = getFunction()
+      val params = function._1
+      val calleeParamTypes = function._3
+      val returnType = function._2
+      val callParamTypes = params.toList.map(p => checkExpression(p, state))
       if (callParamTypes != calleeParamTypes)
           throw new TypeCheckException(s"In call to function: '$name': parameters were of types: ${Types.toString(callParamTypes)}, but function expected ${Types.toString(calleeParamTypes)}", getLineNo(loc))
 
       returnType
-    }
-
   }
 
   def checkStatement(stat : Statement) : State[HashMap[String,  Type],Type]  = {
@@ -136,50 +127,47 @@ object Typechecker {
           }
         }
       case parser.SubroutineCall(fcall, loc) =>
-        checkFunctionCall(fcall.name, fcall.parameters, loc).flatMap(_ => State(s => (s, TUnit())))
+        State(s =>{
+          checkFunctionCall(fcall.name, fcall.parameters,s, loc)
+          (s, TUnit())})
+      case parser.WhileLoop(_condition, _body, loc) =>
+        State(s =>{
+          if (!checkExpression(_condition, s).isInstanceOf[TBool])
+            throw new TypeCheckException("Expression in while was not boolean. ", getLineNo(loc))
+          checkStatements(_body.toList,s)
+          (s, TUnit())
+        })
       case parser.IfThenElse(_condition, _then, _else, loc) =>
-        (for {
-          condType <- checkExpression(_condition)
-        }
-        yield {
-          if (!condType.isInstanceOf[TBool])
-            throw new TypeCheckException("Expression in if was not boolean. ", getLineNo(loc))
-          ()
-        }).flatMap(_ => {
           State(s =>{
+            if (!checkExpression(_condition, s).isInstanceOf[TBool])
+              throw new TypeCheckException("Expression in if was not boolean. ", getLineNo(loc))
             checkStatements(_then.toList,s)
             checkStatements(_else.toList,s)
             (s, TUnit())
           })
-        })
-
     }
   }
 
-  def checkExpression(expr : Expression) : State[HashMap[String,  Type],Type] = {
+  def checkExpression(expr : Expression) : State[HashMap[String,  Type], Type] =
+    State(s => (s,checkExpression(expr, s)))
+
+  def checkExpression(expr : Expression, state: HashMap[String,  Type]) :Type = {
     expr match {
       case parser.ExprValue(value, loc) => value match {
-        case PInt(_) => State(s => (s,TInt()))
-        case PString(_) =>  State(s => (s,TString()))
-        case PFloat(_) =>  State(s => (s,TFloat()))
-        case PBool(_)=> State(s => (s, TBool()))
+        case PInt(_) => TInt()
+        case PString(_) =>  TString()
+        case PFloat(_) =>  TFloat()
+        case PBool(_)=> TBool()
       }
       case parser.Identifier(id,loc) =>
-        for {
-          v <- Base.getVariable(id)
-        } yield{
-          v match {
-            case Some( _type) => _type
-            case None => throw new TypeCheckException("Variable " + id + " not defined when referenced. ", getLineNo(loc))
+        state.get(id) match {
+          case Some( _type) => _type
+          case None => throw new TypeCheckException("Variable " + id + " not defined when referenced. ", getLineNo(loc))
         }
-      }
       case parser.Expr(op, l, r, loc) =>
-        for {
-          leftType <- checkExpression(l)
-          rightType <- checkExpression(r)
-
-        }
-        yield {
+        {
+          val leftType = checkExpression(l, state)
+          val rightType = checkExpression(r, state)
           if (leftType != rightType)
             throw new TypeCheckException(s"Type mismatch in expression: $leftType not equal to $rightType", getLineNo(loc))
           else
@@ -189,9 +177,8 @@ object Typechecker {
                 TBool()
             }
         }
-
       case parser.FunctionCall(name, parameters, loc) =>
-        checkFunctionCall(name, parameters, loc)
+        checkFunctionCall(name, parameters, state, loc)
     }
   }
 }

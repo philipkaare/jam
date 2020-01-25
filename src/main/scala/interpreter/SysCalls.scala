@@ -30,6 +30,13 @@ object SysCalls {
         }
 
       }, TString()))
+      _ <- Base.updateState[Variable]("stringToInt", SysCall(List(TString()), params => {
+        params.head match {
+          case StringVar(value) =>
+            Some(IntVar(Integer.parseInt(value)))
+          case _ => throw new RuntimeTypeException("stringToInt called with a non-string parameter!")
+        }
+      }, TInt()))
       _ <- Base.updateState[Variable]("floatToString", SysCall(List(TFloat()), params => {
         params.head match {
           case FloatVar(i) =>

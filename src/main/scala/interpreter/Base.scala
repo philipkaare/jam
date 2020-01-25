@@ -1,11 +1,10 @@
 package interpreter
 
-import cats.data.State
+import cats.data.{State, _}
 
 import scala.collection.immutable.HashMap
 import cats.syntax.traverse
 import cats.implicits._
-import cats.data._
 
 object Base {
   def setParameters[T](names : Seq[String], values : Seq[T]) : State[HashMap[String, T], Unit] = {
@@ -15,6 +14,9 @@ object Base {
     }
     yield()
 
+  }
+  def toNone[T](): Any => State[HashMap[String, T], Option[T]]= {
+    _ => State(s => (s, None))
   }
 
   def updateState[T](key : String, value: T) : State[HashMap[String, T], Unit] = {

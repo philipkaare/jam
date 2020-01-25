@@ -3,6 +3,16 @@ func hi(msg : String, name : String) : Unit
   print(name)
 end func
 
-print("What's your name?")
-var name<-read()
-hi("Hi: ", name)
+func getNumber() : Int
+  var x <- 0
+  print("Enter number")
+  x <- stringToInt(read())
+  return x
+end func
+
+print("Welcome!")
+var test <- 0
+while test = 0
+  test <- getNumber()
+  hi("hi", "philip")
+end while

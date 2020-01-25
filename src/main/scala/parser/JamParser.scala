@@ -56,7 +56,12 @@ class JamParser(val input: ParserInput) extends Parser {
       ((cond : Expression, _then : Seq[Statement], _else : Seq[Statement]) => IfThenElse(cond,_then,_else, cursor))
   }
 
-  def ParseStatement : Rule1[Statement] = rule { Whitespace ~ (ParseFunctionDeclaration|ParseAssignment | ParseAssignmentAndDeclaration | ParseSubroutineCall | ParseIfThenElse) ~ Whitespace ~ NewLine}
+  def ParseWhileLoop : Rule1[WhileLoop] = rule {
+    (atomic("while") ~ RequiredWhiteSpace ~ ParseExpression ~ NewLine ~ oneOrMore(Whitespace ~ ParseStatement) ~ Whitespace ~ atomic("end while")) ~>
+      ((cond : Expression, body : Seq[Statement]) => WhileLoop(cond, body, cursor))
+  }
+
+  def ParseStatement : Rule1[Statement] = rule { Whitespace ~ (ParseFunctionDeclaration|ParseAssignment | ParseAssignmentAndDeclaration | ParseSubroutineCall | ParseIfThenElse | ParseWhileLoop | ParseReturnStatement) ~ Whitespace ~ NewLine}
 
   def ParseProgram : Rule1[Program] = rule { oneOrMore(ParseStatement) ~> (ss => Program(ss)) }
 
