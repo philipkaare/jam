@@ -1,7 +1,7 @@
 package interpreter
 
 import cats.implicits._
-import cats.data.State
+import cats.data.{EitherT, State, StateT}
 import cats.syntax.traverse
 import exceptions.RuntimeTypeException
 import interpreter.JamInterpreter.{evaluateExpression, executeStatement, executeStatements}
@@ -12,51 +12,63 @@ import util.Util.PipeEverything
 import scala.collection.immutable.HashMap
 import scala.math.Numeric.DoubleIsFractional
 
-
 object JamInterpreter {
+  type StatefulResult = Base.StatefulResult[Variable, Variable]
 
   def run(p :Program): Unit = {
-    val state = SysCalls.initializeSyscalls().run(HashMap()).value._1
-    executeStatements(p.statements.toList).run(state).value._2
+    (for {
+      _<-SysCalls.initializeSyscalls()
+      _<-executeStatements(p.statements.toList)
+    }yield()).run(HashMap()).value
   }
 
-  def executeStatements(statements : Seq[Statement]): State[HashMap[String, Variable], Option[Variable]] = {
+  def executeStatements(statements : Seq[Statement]): StatefulResult = {
     for {
       stats <- statements.toList.traverse(executeStatement)
     } yield (stats.last)
   }
 
-  def executeStatement(stat : Statement) : State[HashMap[String, Variable], Option[Variable]] = {
+  def assignVariable(varname:String, expression: Expression) : StatefulResult  = {
+    (for {
+      exprType <- evaluateExpression(expression)
+      _ <- Base.updateState(varname, exprType)
+    } yield ()) >>= (_ => StateT.liftF(EitherT.right(None)))
+  }
+
+
+  def executeFunctionCall(name : String, parameters : Seq[Expression]) : StatefulResult= {
+    (for {
+      function <- Base.getVariable[Variable](name)
+      params <- parameters.toList.traverse(evaluateExpression)
+    } yield (function, params)) >>= (
+      {case (function, params) =>
+        function match {
+          case SysCall(_, body, _) =>
+            StateT.liftF(EitherT.right(body.apply(params)))
+          case Function(paramBindings, body, _) =>
+            (for {
+              state <- Base.getState[Variable]()
+              pushedParams = paramBindings.map { case TypeBinding(varname, _) => varname }.zip(params).toMap: Map[String, Variable]
+            } yield (state ++ pushedParams)) >>=
+              (state => {
+                executeStatements(body).run(state).value match {
+                  case Some(Right((_, v))) => StateT.pure(v)
+                  case _ => StateT.liftF(EitherT.right(None))
+                }})
+        } })
+  }
+
+  def executeStatement(stat : Statement) : StatefulResult = {
       stat match {
         case FunctionDeclaration(name, parameters, body, returnType, loc) =>
-          Base.updateState[Variable](name, Function(parameters, body, returnType)) >>= Base.toNone()
+          (Base.updateState[Variable](name, Function(parameters, body, returnType))
+             >>= (_ => StateT.liftF(EitherT.right(None))))
         case parser.VarAssignmentAndDeclaration(varname, expression, loc) =>
-          (evaluateExpression(expression)
-            >>= (exprType => Base.updateState(varname, exprType))
-            >>= Base.toNone())
+          assignVariable(varname, expression)
         case VarAssignment(varname, expression, loc) =>
-          (evaluateExpression(expression)
-            >>= (exprType => Base.updateState(varname, exprType)
-            >>= Base.toNone()))
+          assignVariable(varname, expression)
         case parser.SubroutineCall(fcall, loc) =>
-          (for {
-            function <- Base.getVariable[Variable](fcall.name)
-            params <- fcall.parameters.toList.traverse(evaluateExpression)
-          }
-          yield (function, params))
-          .flatMap({case (function, params) => State (s => {
-            function match {
-              case Some(x) => x match {
-                case SysCall(parameters, body, _type) =>
-                  body.apply(params)
-                case Function(paramBindings, body, _type) =>
-                  val pushedParams = paramBindings.map { case TypeBinding(varname, _) =>  varname}.zip(params).toMap : Map[String, Variable]
-                  executeStatements(body).run(s ++ pushedParams).value
-              }
-            }
-            (s,None)
-          })
-          })
+          executeFunctionCall(fcall.name,fcall.parameters )
         case parser.IfThenElse(_condition, _then, _else, loc) =>
           evaluateExpression(_condition).flatMap(exprVal => {
               if (exprVal == BoolVar(true))
@@ -65,12 +77,12 @@ object JamInterpreter {
                 executeStatements(_else.toList)
           })
         case parser.WhileLoop(_condition, _body, _) =>
-          def whileLoop() : State[HashMap[String, Variable], Option[Variable]] = {
+          def whileLoop() : StatefulResult = {
             evaluateExpression(_condition).flatMap(exprVal => {
               if (exprVal == BoolVar(true))
                 executeStatements(_body).flatMap(_ => whileLoop())
               else
-                State(s => (s, None))
+                StateT.liftF(EitherT.right(None))
             })
           }
           whileLoop()
@@ -100,65 +112,37 @@ object JamInterpreter {
   }
 
 
-  def evaluateExpression(expr : Expression) : State[HashMap[String, Variable], Variable] = {
+  def evaluateExpression(expr : Expression) : StatefulResult = {
     expr match {
       case parser.ExprValue(value, loc) => value match {
-        case parser.PInt(value1) => IntVar(value1) |> State.pure
-        case parser.PString(value1) => StringVar(value1)|> State.pure
-        case parser.PFloat(value1) => FloatVar(value1)|> State.pure
-        case parser.PBool(value1) => BoolVar(value1)|> State.pure
+        case parser.PInt(value1) => StateT.pure(IntVar(value1))
+        case parser.PString(value1) => StateT.pure(StringVar(value1))
+        case parser.PFloat(value1) => StateT.pure(FloatVar(value1))
+        case parser.PBool(value1) => StateT.pure(BoolVar(value1))
       }
       case parser.Identifier(id, loc) =>
-        for {
-          v <- Base.getVariable(id)
-        }yield {
-          v match {
-            case Some(variable) => variable
-            case None => throw new Exception("Variable " + id + " not defined when referenced. ")
-          }
-        }
+        Base.getVariable(id)
       case parser.Expr(op, l, r, loc) =>
-        for {
+        (for {
           leftvar <- evaluateExpression(l)
           rightvar <- evaluateExpression(r)
-        }yield {
+        }yield ((leftvar,rightvar))) >>= (vars => {
           op match {
             case boolOp: BooleanOperator =>
-              (leftvar, rightvar) match {
+              (vars._1, vars._2) match {
                 case (lcomp: Comparable[Ordered[Int]], rcomp: Comparable[Ordered[Int]]) =>
-                  BoolVar(lcomp.compare(boolOp, rcomp))
-                case _ => throw new RuntimeTypeException("Expected a comparable expression with boolean operator, but was not comparable. The typechecking phase should have caught this...")
+                  StateT.pure(BoolVar(lcomp.compare(boolOp, rcomp)))
+                case _ => StateT.liftF(EitherT.leftT("Expected a comparable expression with boolean operator, but was not comparable. The typechecking phase should have caught this..."))
               }
             case arithOp: ArithmeticOperator =>
-              (leftvar, rightvar) match {
-                case (lint: IntVar, rint: IntVar) => calculate(arithOp, lint, rint)
-                case (lfloat: FloatVar, rfloat: FloatVar) => calculate(arithOp, lfloat, rfloat)
-                case _ => throw new RuntimeTypeException("Expected a numeric type. The typechecking phase should have caught this...")
+              (vars._1, vars._2) match {
+                case (lint: IntVar, rint: IntVar) => StateT.pure(calculate(arithOp, lint, rint))
+                case (lfloat: FloatVar, rfloat: FloatVar) => StateT.pure(calculate(arithOp, lfloat, rfloat))
+                case _ => StateT.liftF(EitherT.leftT("Expected a numeric type. The typechecking phase should have caught this..."))
               }
-          }
-        }
+          }})
       case parser.FunctionCall(name, parameters, loc) =>
-        (for {
-          v <- Base.getVariable[Variable](name)
-          params <- parameters.toList.traverse(evaluateExpression)
-        } yield {
-          v match {
-            case Some(v) => (v, params)
-          }
-        }).flatMap({ case (v, params) => {
-          v match {
-            case SysCall(parameterTypes, body, _type) =>
-              State(s => (s,body.apply(params).get))
-            case Function(paramBindings, body, _type) =>
-              val pushedParams = paramBindings.map { case TypeBinding(varname, _) =>  varname}.zip(params).toMap : Map[String, Variable]
-
-              State(s  => {
-                val x = executeStatements(body).run(s ++ pushedParams).value._2.get
-                (s, x)
-              })
-          }
-        }})
-
+        executeFunctionCall(name, parameters)
     }
   }
 }

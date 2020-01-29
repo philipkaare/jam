@@ -62,7 +62,7 @@ object Typechecker {
   }
 
   def checkStatement(stat : Statement) : State[HashMap[String,  Type],Type]  = {
-    stat match {
+    stat match {sour
       case FunctionDeclaration(name, parameters, body,returnType:Type, loc) =>
         val decl : Type = TFunctionDecl(parameters.map(b => b._type), returnType)
         (for{
