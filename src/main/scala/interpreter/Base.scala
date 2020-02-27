@@ -33,6 +33,14 @@ object Base {
     })
   }
 
+  def exists[T](key : String) : StatefulResult[T, Boolean] = {
+    StateT((s : Map[String, T]) => s.get(key) match {
+      case Some(v) => EitherT.rightT((s,true))
+      case None => EitherT.rightT((s, false))
+    })
+  }
+
+
   def getLineNo(input : String) = (pos : Int ) => {
     val (untilPos,_) = input.splitAt(pos)
     val lineno = untilPos.count(c => c == '\n') + 1
