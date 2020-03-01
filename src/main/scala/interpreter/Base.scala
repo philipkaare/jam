@@ -7,29 +7,39 @@ import cats.syntax.traverse
 import cats.implicits._
 
 object Base {
-  def setParameters[T](names : Seq[String], values : Seq[T]) : State[HashMap[String, T], Unit] = {
+  type Result[A] = EitherT[Option, String, A]
+  type InternalState[T] = Map[String, T]
+  type StatefulResult[T,V] = StateT[Result, InternalState[T], V]
 
+  def setParameters[T](names : Seq[String], values : Seq[T]) : StatefulResult[T, Unit] = {
     for {
       _ <- names.zip(values).toList.traverse({case (name, value) => updateState(name, value)})
     }
     yield()
-
-  }
-  def toNone[T](): Any => State[HashMap[String, T], Option[T]]= {
-    _ => State(s => (s, None))
   }
 
-  def updateState[T](key : String, value: T) : State[HashMap[String, T], Unit] = {
-    State(s => (s + (key -> value), ()))
+  def updateState[T](key : String, value: T) : StatefulResult[T, Unit] = {
+    StateT(s => EitherT.pure((s + (key -> value), ())))
   }
 
-  def getVariable[T](key : String) : State[HashMap[String, T], Option[T]] = {
-    State(s => (s, s.get(key)))
+  def getState[T]() : StatefulResult[T, Map[String, T]]= {
+    StateT((s : Map[String, T]) => EitherT.pure((s, s)))
   }
 
-  def exists[T](key : String) : State[HashMap[String, T], Boolean] = {
-    State(s => (s, s.get(key).isDefined))
+  def getVariable[T](key : String) : StatefulResult[T, T] = {
+    StateT((s : Map[String, T]) => s.get(key) match {
+      case Some(v) => EitherT.rightT((s,v))
+      case None => EitherT.leftT("Variable " + key + " not defined when referenced. ")
+    })
   }
+
+  def exists[T](key : String) : StatefulResult[T, Boolean] = {
+    StateT((s : Map[String, T]) => s.get(key) match {
+      case Some(v) => EitherT.rightT((s,true))
+      case None => EitherT.rightT((s, false))
+    })
+  }
+
 
   def getLineNo(input : String) = (pos : Int ) => {
     val (untilPos,_) = input.splitAt(pos)

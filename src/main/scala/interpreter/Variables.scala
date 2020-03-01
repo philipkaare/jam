@@ -20,6 +20,7 @@ sealed trait Variable
 
   }
 
+  case class UnitVar() extends Variable
   case class IntVar(override val value : Int) extends Comparable(value)
   case class StringVar(value : String) extends Variable
   case class FloatVar(override val value: Double) extends Comparable(value)
