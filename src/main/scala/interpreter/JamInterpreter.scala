@@ -1,9 +1,12 @@
 package interpreter
 
+import cats.arrow.FunctionK
 import cats.implicits._
 import cats.data.{EitherT, State, StateT}
 import cats.syntax.traverse
+import cats.~>
 import exceptions.RuntimeTypeException
+import interpreter.Base.Result
 import interpreter.JamInterpreter.{evaluateExpression, executeStatement, executeStatements}
 import parser._
 import typecheck.TNotSet
@@ -16,53 +19,81 @@ object JamInterpreter {
   type StatefulResult = Base.StatefulResult[Variable, Variable]
 
   def run(p :Program): Unit = {
-    (for {
+    val result = (for {
       _<-SysCalls.initializeSyscalls()
-      _<-executeStatements(p.statements.toList)
-    }yield()).run(HashMap()).value
+      r<-executeStatements(p.statements.toList)
+    }yield r).run(HashMap()).value
+
+    result match {
+      case Some(result) =>
+        result match {
+          case Left(msg) => println(msg)
+          case Right(_) => println("Program executed ok. ")
+        }
+      case _ => println("Program executed with no result. ")
+    }
   }
+//
+//  def flatMapOption(res : StatefulResult, f : (Base.Result[Variable]=> StatefulResult)) : StatefulResult=
+//    StateT(s =>{
+//      val ret : Result[Variable] = EitherT.pure(None)
+//      res.run(s).value match {
+//        case Some(x) => x match {
+//          case Left(msg) =>
+//          case Right((state, v)) => f(ret).run(x)
+//        }
+//        case None => f(ret)
+//      }
+//    }
+//    )
+
+  def error(msg : String) : StatefulResult = StateT.liftF(EitherT.leftT(msg))
+
+  def result(v : Variable) : StatefulResult = StateT.liftF(EitherT.rightT(v))
+
+  def emptyResult : StatefulResult = StateT.liftF(EitherT.rightT(UnitVar()))
 
   def executeStatements(statements : Seq[Statement]): StatefulResult = {
-    for {
-      stats <- statements.toList.traverse(executeStatement)
-    } yield (stats.last)
+    statements.toList.traverse(executeStatement).flatMap(r => result(r.last))
   }
 
   def assignVariable(varname:String, expression: Expression) : StatefulResult  = {
-    (for {
-      exprType <- evaluateExpression(expression)
-      _ <- Base.updateState(varname, exprType)
-    } yield ()) >>= (_ => StateT.liftF(EitherT.right(None)))
+    for {
+      exprResult <- evaluateExpression(expression)
+      _ <- Base.updateState(varname, exprResult)
+    } yield UnitVar()
   }
 
-
   def executeFunctionCall(name : String, parameters : Seq[Expression]) : StatefulResult= {
-    (for {
+    def exec : (Variable, List[Variable]) => StatefulResult = (function : Variable, params : List[Variable]) => {
+      function match {
+        case SysCall(_, body, _) =>
+          StateT.liftF(EitherT.right(body.apply(params)))
+        case Function(paramBindings, body, _) =>
+          (for {
+            state <- Base.getState[Variable]()
+            pushedParams = paramBindings.map { case TypeBinding(varname, _) => varname }.zip(params).toMap: Map[String, Variable]
+          } yield (state ++ pushedParams)) >>=
+            (state => {
+              executeStatements(body).run(state).value match {
+                case Some(Right((_, v))) => result(v)
+                case Some(Left(msg)) => error(msg)
+                case _ => error("Empty result when executing function! ")
+              }})
+      } }
+
+    for {
       function <- Base.getVariable[Variable](name)
       params <- parameters.toList.traverse(evaluateExpression)
-    } yield (function, params)) >>= (
-      {case (function, params) =>
-        function match {
-          case SysCall(_, body, _) =>
-            StateT.liftF(EitherT.right(body.apply(params)))
-          case Function(paramBindings, body, _) =>
-            (for {
-              state <- Base.getState[Variable]()
-              pushedParams = paramBindings.map { case TypeBinding(varname, _) => varname }.zip(params).toMap: Map[String, Variable]
-            } yield (state ++ pushedParams)) >>=
-              (state => {
-                executeStatements(body).run(state).value match {
-                  case Some(Right((_, v))) => StateT.pure(v)
-                  case _ => StateT.liftF(EitherT.right(None))
-                }})
-        } })
+      res <- exec(function, params)
+    } yield res
   }
 
   def executeStatement(stat : Statement) : StatefulResult = {
       stat match {
         case FunctionDeclaration(name, parameters, body, returnType, loc) =>
-          (Base.updateState[Variable](name, Function(parameters, body, returnType))
-             >>= (_ => StateT.liftF(EitherT.right(None))))
+          (Base.updateState[Variable](name, Function(parameters, body, returnType)) *> emptyResult)
+             //>>= (_ => emptyResult))
         case parser.VarAssignmentAndDeclaration(varname, expression, loc) =>
           assignVariable(varname, expression)
         case VarAssignment(varname, expression, loc) =>
@@ -82,7 +113,7 @@ object JamInterpreter {
               if (exprVal == BoolVar(true))
                 executeStatements(_body).flatMap(_ => whileLoop())
               else
-                StateT.liftF(EitherT.right(None))
+                emptyResult
             })
           }
           whileLoop()
@@ -92,7 +123,6 @@ object JamInterpreter {
   }
 
   def calculate(arithOp : ArithmeticOperator, x: IntVar, y : IntVar) : IntVar = {
-
     IntVar(arithOp match {
       case Mult() => x.value * y.value
       case Plus() => x.value + y.value
@@ -102,7 +132,6 @@ object JamInterpreter {
   }
 
   def calculate(arithOp : ArithmeticOperator, x: FloatVar, y : FloatVar) : FloatVar = {
-
     FloatVar(arithOp match {
       case Mult() => x.value * y.value
       case Plus() => x.value + y.value

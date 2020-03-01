@@ -28,7 +28,8 @@ object Typechecker {
         case _ => Left("A variable of type other than syscall in syscall collection. Bad, bad programmer!")
       }))).run(HashMap()).value
 
-    val result = s.flatMap(v => Some(v.flatMap(v1 => Right(v1._2.flatMap(state => Right(checkStatements(p.statements.toList, state.toMap))))).flatten))
+    val result = s.flatMap(v => Some(v.flatMap(v1 => Right(v1._2.flatMap(state =>
+      checkStatements(p.statements.toList, state.toMap)))).flatten))
 
     result match {
       case Some(v) => v match {
@@ -39,22 +40,21 @@ object Typechecker {
     }
   }
 
-  def checkStatements(statements : Seq[Statement], state : Map[String,  Type]): Type = {
+  def checkStatements(statements : Seq[Statement], state : Map[String,  Type]): Either[String, Type] = {
 
     val res = (for {
       s <- statements.toList.traverse(checkStatement)
     } yield {
       s.last
     }).run(state).value
-/*
+
     res match {
       case Some(either) => either match {
-        case Left(value) =>
-        case Right(value) =>
+        case Left(value) =>Left(value)
+        case Right((_, value)) =>Right(value)
       }
-      case _ =>
-    }*/
-    TUnit()
+      case _ =>Left("Unknown error when checking statements. TODO")
+    }
   }
 
   def checkFunctionCall(name : String, parameters : Seq[Expression], state : Map[String,  Type], loc : Int) :Type  = {
@@ -107,10 +107,17 @@ object Typechecker {
     StateT(s => {
       val params = parameters.map { case TypeBinding(varname, t) => (varname, t) }.toMap
 
-      val actualReturnType = checkStatements(body, s ++ params)
-      if (returnType != actualReturnType)
-        throw new TypeCheckException(s"Returning variable of type $actualReturnType in function declaring type $returnType", getLineNo(loc))
-      EitherT.rightT(s, TUnit())
+      val result = checkStatements(body, s ++ params).flatMap(actualReturnType =>
+      {
+        if (returnType != actualReturnType)
+        {
+          val msg =s"Returning variable of type $actualReturnType in function declaring type $returnType" + getLineNo(loc)
+          Left(msg)
+        }
+        else
+          Right((s, ()))
+      })
+      EitherT.fromEither(result)
     })
   }
 
@@ -142,16 +149,11 @@ object Typechecker {
       case VarAssignment(varname, expression, loc) =>
         for {
           exprType <- toStatefulResult(checkExpression(expression))
-          varTypeOpt <- Base.getVariable[Type](varname)
+          varType <- Base.getVariable[Type](varname)
         }
           yield {
-          varTypeOpt match{
-            case Some(varType) =>
-              if (exprType != varType)
-                throw new TypeCheckException(s"Variable assigned to wrong type. Variable $varname is of type: ${Types.toString(varType)} but was assigned a value of type ${Types.toString(exprType)}", getLineNo(loc))
-            case None =>
-              throw new TypeCheckException(s"Tried to assign a value to an undeclared variable '$varname'. Maybe you forgot to declare the variable using the 'var' keyword?", getLineNo(loc))
-          }
+            if (exprType != varType)
+              throw new TypeCheckException(s"Variable assigned to wrong type. Variable $varname is of type: ${Types.toString(varType)} but was assigned a value of type ${Types.toString(exprType)}", getLineNo(loc))
           TUnit()
         }
       case Return(varname, loc) =>
@@ -166,17 +168,20 @@ object Typechecker {
       case parser.WhileLoop(_condition, _body, loc) =>
         StateT(s =>{
           if (!checkExpression(_condition, s).isInstanceOf[TBool])
-            throw new TypeCheckException("Expression in while was not boolean. ", getLineNo(loc))
-          checkStatements(_body.toList,s)
-          EitherT.rightT(s, TUnit())
+            EitherT.leftT("Expression in while was not boolean. " + getLineNo(loc))
+          else
+          {
+            val result = checkStatements(_body.toList,s) >>= (t => Right((s, t)))
+            EitherT.fromEither(result)
+          }
         })
       case parser.IfThenElse(_condition, _then, _else, loc) =>
           StateT(s =>{
             if (!checkExpression(_condition, s).isInstanceOf[TBool])
               throw new TypeCheckException("Expression in if was not boolean. ", getLineNo(loc))
-            checkStatements(_then.toList,s)
-            checkStatements(_else.toList,s)
-            EitherT.rightT(s, TUnit())
+            val result = checkStatements(_then.toList,s) >>=
+              (_ => checkStatements(_else.toList,s)) >>= (t => Right((s, t)))
+            EitherT.fromEither(result)
           })
     }
   }

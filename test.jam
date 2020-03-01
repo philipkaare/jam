@@ -1,18 +1,23 @@
-func hi(msg : String, name : String) : Unit
-  print(msg)
-  print(name)
-end func
+var y <- 5+(1+2)*3
+var x <- 4*4/2
+var z <- 4.3+7.3
+z<- 10.5
+print(intToString(y))
+print("What's your name?")
+var name<-read()
 
-func getNumber() : Int
-  var x <- 0
-  print("Enter number")
-  x <- stringToInt(read())
-  return x
-end func
+var s<-(y+x)
+if 5 > 7 then
+  print(intToString(s))
+else
+  print("S er:")
+  print(intToString(s))
+  print("Z er:")
+  print(floatToString(z))
+end if
 
-print("Welcome!")
-var test <- 0
-while test = 0
-  test <- getNumber()
-  hi("hi", "philip")
-end while
+if s = 22 then
+  print("Test passed!!")
+else
+  print("Test failed :(")
+end if

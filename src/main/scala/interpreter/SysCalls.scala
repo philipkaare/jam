@@ -25,7 +25,7 @@ object SysCalls {
                 case StringVar(s) => System.out.println(s)
                 case _ => throw new RuntimeTypeException("print called with a non-string parameter!")
               }
-              None
+              Some(UnitVar())
             }, TUnit()))
       _ <- Base.updateState[Variable]("intToString", SysCall(List(TInt()), params => {
             params.head match {
