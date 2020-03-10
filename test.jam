@@ -10,12 +10,13 @@ var s<-(y+x)
 if 5 > 7 then
   print(intToString(s))
 else
-  print("S er:")
+  print("S is:")
   print(intToString(s))
-  print("Z er:")
+  print("Z is:")
   print(floatToString(z))
 end if
-
+print("Hi")
+print(name)
 if s = 22 then
   print("Test passed!!")
 else

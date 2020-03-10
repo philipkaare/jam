@@ -57,27 +57,33 @@ object Typechecker {
     }
   }
 
-  def checkFunctionCall(name : String, parameters : Seq[Expression], state : Map[String,  Type], loc : Int) :Type  = {
-    def getFunction() : Tuple3[Seq[Expression], Type, Seq[Type]] = {
+  def checkFunctionCall(name : String, parameters : Seq[Expression], state : Map[String,  Type], loc : Int) : Either[String, Type]  = {
+    def getFunction() : Either[String, Tuple3[Seq[Expression], Type, Seq[Type]]] = {
         val functionType = state.get(name)
         functionType match {
           case Some(_type) => _type match {
             case TFunctionDecl(calleeParameters, returnType) =>
-              (parameters, returnType, calleeParameters)
+              Right((parameters, returnType, calleeParameters))
           }
-          case None => throw new TypeCheckException("Call to undeclared function " + name, getLineNo(loc))
+          case None => Left("Call to undeclared function " + name + getLineNo(loc))
         }
       }
-
-      val function = getFunction()
-      val params = function._1
-      val calleeParamTypes = function._3
-      val returnType = function._2
-      val callParamTypes = params.toList.map(p => checkExpression(p, state))
-      if (callParamTypes != calleeParamTypes)
-          throw new TypeCheckException(s"In call to function: '$name': parameters were of types: ${Types.toString(callParamTypes)}, but function expected ${Types.toString(calleeParamTypes)}", getLineNo(loc))
-
-      returnType
+    def verifyParameters(callParamTypesEither : Either[String, Seq[Type]], calleeParamTypes: Seq[Type]) : Either[String, Unit] = {
+      callParamTypesEither >>=
+        (callParamTypes => {
+          if (callParamTypes != calleeParamTypes)
+            Left(s"In call to function: '$name': parameters were of types: ${Types.toString(callParamTypes)}, but function expected ${Types.toString(calleeParamTypes)}" + getLineNo(loc))
+          else
+            Right(())})
+    }
+    for {
+      function <- getFunction()
+      params = function._1
+      calleeParamTypes = function._3
+      returnType = function._2
+      callParamTypes = params.toList.traverse(p => checkExpression(p, state))
+      _ <- verifyParameters(callParamTypes, calleeParamTypes)
+    } yield returnType
   }
 
   def toStatefulResult(res : State[Map[String,  Type], Type]) : Base.StatefulResult[Type, Type] =
@@ -136,7 +142,7 @@ object Typechecker {
         yield TUnit()
       case parser.VarAssignmentAndDeclaration(varname, expression, loc) =>
         for {
-          t <- toStatefulResult(checkExpression(expression))
+          t <- checkExpression(expression)
           exists <- Base.exists(varname)
           _ <- Base.updateState(varname, t)
         }
@@ -148,12 +154,13 @@ object Typechecker {
         }
       case VarAssignment(varname, expression, loc) =>
         for {
-          exprType <- toStatefulResult(checkExpression(expression))
+          exprType <- checkExpression(expression)
           varType <- Base.getVariable[Type](varname)
         }
           yield {
             if (exprType != varType)
-              throw new TypeCheckException(s"Variable assigned to wrong type. Variable $varname is of type: ${Types.toString(varType)} but was assigned a value of type ${Types.toString(exprType)}", getLineNo(loc))
+              throw new TypeCheckException(s"Variable assigned to wrong type. Variable $varname is of type: " +
+                s"${Types.toString(varType)} but was assigned a value of type ${Types.toString(exprType)}", getLineNo(loc))
           TUnit()
         }
       case Return(varname, loc) =>
@@ -163,56 +170,59 @@ object Typechecker {
         Base.getVariable[Type](varname)
       case parser.SubroutineCall(fcall, loc) =>
         StateT(s =>{
-          checkFunctionCall(fcall.name, fcall.parameters,s, loc)
-          EitherT.rightT(s, TUnit())})
+          EitherT.fromEither(checkFunctionCall(fcall.name, fcall.parameters,s, loc)
+            .flatMap(_ => Right((s, TUnit()))))
+        })
       case parser.WhileLoop(_condition, _body, loc) =>
         StateT(s =>{
-          if (!checkExpression(_condition, s).isInstanceOf[TBool])
-            EitherT.leftT("Expression in while was not boolean. " + getLineNo(loc))
-          else
-          {
-            val result = checkStatements(_body.toList,s) >>= (t => Right((s, t)))
-            EitherT.fromEither(result)
-          }
+          EitherT.fromEither(checkExpression(_condition, s).flatMap(t => {
+            if (!t.isInstanceOf[TBool])
+              Left("Expression in while was not boolean. " + getLineNo(loc))
+            else
+            {
+              checkStatements(_body.toList,s) >>= (t => Right((s, t)))
+            }}))
         })
       case parser.IfThenElse(_condition, _then, _else, loc) =>
           StateT(s =>{
-            if (!checkExpression(_condition, s).isInstanceOf[TBool])
-              throw new TypeCheckException("Expression in if was not boolean. ", getLineNo(loc))
-            val result = checkStatements(_then.toList,s) >>=
-              (_ => checkStatements(_else.toList,s)) >>= (t => Right((s, t)))
-            EitherT.fromEither(result)
+            EitherT.fromEither(checkExpression(_condition, s).flatMap(t => {
+              if (!t.isInstanceOf[TBool])
+                Left("Expression in if was not boolean. " + getLineNo(loc))
+              else
+                checkStatements(_then.toList,s) >>=
+                (_ => checkStatements(_else.toList,s)) >>= (t => Right((s, t)))
+              }))
           })
     }
   }
 
-  def checkExpression(expr : Expression) : State[Map[String,  Type], Type] =
-    State(s => (s,checkExpression(expr, s)))
+  def checkExpression(expr : Expression) : Base.StatefulResult[Type, Type] =
+    StateT((s : Map[String, Type]) => EitherT.fromEither((checkExpression(expr, s).flatMap(t => Right((s,t))))))
 
-  def checkExpression(expr : Expression, state: Map[String,  Type]) :Type = {
+  def checkExpression(expr : Expression, state: Map[String,  Type]) : Either[String, Type] = {
     expr match {
       case parser.ExprValue(value, loc) => value match {
-        case PInt(_) => TInt()
-        case PString(_) =>  TString()
-        case PFloat(_) =>  TFloat()
-        case PBool(_)=> TBool()
+        case PInt(_) => Right(TInt())
+        case PString(_) =>  Right(TString())
+        case PFloat(_) =>  Right(TFloat())
+        case PBool(_)=> Right(TBool())
       }
       case parser.Identifier(id,loc) =>
         state.get(id) match {
-          case Some( _type) => _type
-          case None => throw new TypeCheckException("Variable " + id + " not defined when referenced. ", getLineNo(loc))
+          case Some( _type) => Right(_type)
+          case None => Left("Variable " + id + " not defined when referenced. " + getLineNo(loc))
         }
       case parser.Expr(op, l, r, loc) =>
         {
           val leftType = checkExpression(l, state)
           val rightType = checkExpression(r, state)
           if (leftType != rightType)
-            throw new TypeCheckException(s"Type mismatch in expression: $leftType not equal to $rightType", getLineNo(loc))
+            Left(s"Type mismatch in expression: $leftType not equal to $rightType" + getLineNo(loc))
           else
             op match {
               case _ : ArithmeticOperator => leftType
               case _ : BooleanOperator => //todo: Does it make sense to compare strings with < / > ?
-                TBool()
+                Right(TBool())
             }
         }
       case parser.FunctionCall(name, parameters, loc) =>
