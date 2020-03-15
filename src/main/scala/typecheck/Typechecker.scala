@@ -18,7 +18,7 @@ object Typechecker {
   var getLineNo : Int => String = s => ""
 
 
-  def check(p :Program): Unit = {
+  def check(p :Program): Either[String, Unit] = {
     val s = (for {
       _ <- SysCalls.initializeSyscalls()
       state <- Base.getState()
@@ -29,21 +29,21 @@ object Typechecker {
       }))).run(HashMap()).value
 
     val result = s.flatMap(v => Some(v.flatMap(v1 => Right(v1._2.flatMap(state =>
-      checkStatements(p.statements.toList, state.toMap)))).flatten))
+      checkStatements(p.statements.toList, state.toMap, false)))).flatten))
 
     result match {
       case Some(v) => v match {
-        case Left(msg) => println(msg)
-        case _ => ()
+        case Left(msg) => Left(msg)
+        case _ => Right(())
       }
-      case None => ()
+      case None => Right(())
     }
   }
 
-  def checkStatements(statements : Seq[Statement], state : Map[String,  Type]): Either[String, Type] = {
+  def checkStatements(statements : Seq[Statement], state : Map[String,  Type], isInBody : Boolean): Either[String, Type] = {
 
     val res = (for {
-      s <- statements.toList.traverse(checkStatement)
+      s <- statements.toList.traverse(stat => checkStatement(stat, isInBody))
     } yield {
       s.last
     }).run(state).value
@@ -89,6 +89,9 @@ object Typechecker {
   def toStatefulResult(res : State[Map[String,  Type], Type]) : Base.StatefulResult[Type, Type] =
     StateT(s => EitherT.right(Some(res.run(s).value)))
 
+  def eitherMap(f : () => Either[String, Type]) :  Base.StatefulResult[Type, Type] =
+    StateT.liftF(EitherT.fromEither(f()))
+
   def checkParamShadowsVariable(param_exists : List[Boolean], parameters :Seq[TypeBinding], loc : Int) : Base.StatefulResult[Type, Unit] = {
     val res : Either[String, Unit] = param_exists.zip(parameters.map{ case TypeBinding(varname, _)=>varname }).foldMap({
       case (exists, varname) => {
@@ -113,7 +116,7 @@ object Typechecker {
     StateT(s => {
       val params = parameters.map { case TypeBinding(varname, t) => (varname, t) }.toMap
 
-      val result = checkStatements(body, s ++ params).flatMap(actualReturnType =>
+      val result = checkStatements(body, s ++ params, true).flatMap(actualReturnType =>
       {
         if (returnType != actualReturnType)
         {
@@ -127,7 +130,7 @@ object Typechecker {
     })
   }
 
-  def checkStatement(stat : Statement) : Base.StatefulResult[Type, Type]  = {
+  def checkStatement(stat : Statement, isInBody : Boolean) : Base.StatefulResult[Type, Type]  = {
     stat match {
       case FunctionDeclaration(name, parameters, body,returnType:Type, loc) =>
         val decl : Type = TFunctionDecl(parameters.map(b => b._type), returnType)
@@ -145,29 +148,37 @@ object Typechecker {
           t <- checkExpression(expression)
           exists <- Base.exists(varname)
           _ <- Base.updateState(varname, t)
+          res <- eitherMap(()=>{
+            if (exists)
+              Left(s"Variable $varname already defined in scope. " + getLineNo(loc))
+            else
+              Right(TUnit())
+          } )
         }
-        yield {
-          if (exists)
-            throw new TypeCheckException(s"Variable $varname already defined in scope. ",getLineNo(loc))
-          else
-            TUnit()
-        }
+        yield res
       case VarAssignment(varname, expression, loc) =>
         for {
           exprType <- checkExpression(expression)
           varType <- Base.getVariable[Type](varname)
-        }
-          yield {
+          res <- eitherMap(()=>{
             if (exprType != varType)
-              throw new TypeCheckException(s"Variable assigned to wrong type. Variable $varname is of type: " +
-                s"${Types.toString(varType)} but was assigned a value of type ${Types.toString(exprType)}", getLineNo(loc))
-          TUnit()
+              Left(s"Variable assigned to wrong type. Variable $varname is of type: " +
+                s"${Types.toString(varType)} but was assigned a value of type ${Types.toString(exprType)} " +  getLineNo(loc))
+            else
+              Right(TUnit())
+          })
         }
+          yield res
       case Return(varname, loc) =>
-        //if (!isInBody)
-        //  throw new TypeCheckException("Return outside function body. You can only return when inside a function. ", getLineNo(loc))
-        //else
-        Base.getVariable[Type](varname)
+        for {
+          res <- (Base.getVariable[Type](varname))
+          _ <- eitherMap(() => {
+            if (!isInBody)
+              Left("Call to return outside function body." + getLineNo(loc))
+            else
+              Right(TUnit())
+          })
+        } yield res
       case parser.SubroutineCall(fcall, loc) =>
         StateT(s =>{
           EitherT.fromEither(checkFunctionCall(fcall.name, fcall.parameters,s, loc)
@@ -180,7 +191,7 @@ object Typechecker {
               Left("Expression in while was not boolean. " + getLineNo(loc))
             else
             {
-              checkStatements(_body.toList,s) >>= (t => Right((s, t)))
+              checkStatements(_body.toList,s, isInBody) >>= (t => Right((s, t)))
             }}))
         })
       case parser.IfThenElse(_condition, _then, _else, loc) =>
@@ -189,8 +200,8 @@ object Typechecker {
               if (!t.isInstanceOf[TBool])
                 Left("Expression in if was not boolean. " + getLineNo(loc))
               else
-                checkStatements(_then.toList,s) >>=
-                (_ => checkStatements(_else.toList,s)) >>= (t => Right((s, t)))
+                checkStatements(_then.toList,s, isInBody) >>=
+                (_ => checkStatements(_else.toList,s, isInBody)) >>= (t => Right((s, t)))
               }))
           })
     }

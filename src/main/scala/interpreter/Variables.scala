@@ -26,5 +26,5 @@ sealed trait Variable
   case class FloatVar(override val value: Double) extends Comparable(value)
   case class BoolVar(value : Boolean) extends Variable
   case class Function(parameters : Seq[TypeBinding], body : Seq[Statement], _type : Type) extends Variable
-  case class SysCall(parameterTypes : Seq[Type], body : Function1 [Seq[Variable], Option[Variable]], _type : Type) extends Variable
+  case class SysCall(parameterTypes : Seq[Type], body : Function1 [Seq[Variable], Either[String, Variable]], _type : Type) extends Variable
 

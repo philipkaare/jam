@@ -18,38 +18,34 @@ object SysCalls {
   def initializeSyscalls() : StatefulResult[Variable, Unit] = {
     for {
       _ <- Base.updateState[Variable]("read", SysCall(List(), params => {
-              Some(StringVar(scala.io.StdIn.readLine()))
+              Right(StringVar(scala.io.StdIn.readLine()))
             }, TString()))
       _ <- Base.updateState[Variable]("print", SysCall(List(TString()), params => {
               params.head match {
-                case StringVar(s) => System.out.println(s)
-                case _ => throw new RuntimeTypeException("print called with a non-string parameter!")
+                case StringVar(s) => {
+                  System.out.println(s)
+                  Right(UnitVar())
+                }
+                case _ => Left("print called with a non-string parameter!")
               }
-              Some(UnitVar())
             }, TUnit()))
       _ <- Base.updateState[Variable]("intToString", SysCall(List(TInt()), params => {
             params.head match {
-              case IntVar(i) =>
-                Some(StringVar(i.toString))
-              case _ => throw new RuntimeTypeException("intToString called with a non-int parameter!")
+              case IntVar(i) => Right(StringVar(i.toString))
+              case _ => Left("intToString called with a non-int parameter!")
             }
-
           }, TString()))
       _ <- Base.updateState[Variable]("stringToInt", SysCall(List(TString()), params => {
               params.head match {
-                case StringVar(value) =>
-                  Some(IntVar(Integer.parseInt(value)))
-                case _ => throw new RuntimeTypeException("stringToInt called with a non-string parameter!")
+                case StringVar(value) => Right(IntVar(Integer.parseInt(value)))
+                case _ => Left("stringToInt called with a non-string parameter!")
               }
             }, TInt()))
       _ <- Base.updateState[Variable]("floatToString", SysCall(List(TFloat()), params => {
               params.head match {
-                case FloatVar(i) =>
-                  Some(StringVar(i.toString))
-                case _ => throw new RuntimeTypeException("floatToString called with a non-int parameter!")
-              }
-
-            }, TString()))
+                case FloatVar(i) => Right(StringVar(i.toString))
+                case _ => Left("floatToString called with a non-int parameter!")
+              }}, TString()))
     } yield ()
 
   }

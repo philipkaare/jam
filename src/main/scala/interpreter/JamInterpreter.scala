@@ -18,7 +18,7 @@ import scala.math.Numeric.DoubleIsFractional
 object JamInterpreter {
   type StatefulResult = Base.StatefulResult[Variable, Variable]
 
-  def run(p :Program): Unit = {
+  def run(p :Program): Either[String, Unit] = {
     val result = (for {
       _<-SysCalls.initializeSyscalls()
       r<-executeStatements(p.statements.toList)
@@ -27,10 +27,10 @@ object JamInterpreter {
     result match {
       case Some(result) =>
         result match {
-          case Left(msg) => println(msg)
-          case Right(_) => println("Program executed ok. ")
+          case Left(msg) => Left(msg)
+          case Right(_) => Right()
         }
-      case _ => println("Program executed with no result. ")
+      case _ => Right()
     }
   }
 //
@@ -68,7 +68,7 @@ object JamInterpreter {
     def exec : (Variable, List[Variable]) => StatefulResult = (function : Variable, params : List[Variable]) => {
       function match {
         case SysCall(_, body, _) =>
-          StateT.liftF(EitherT.right(body.apply(params)))
+          StateT.liftF(EitherT.fromEither(body.apply(params)))
         case Function(paramBindings, body, _) =>
           (for {
             state <- Base.getState[Variable]()
